@@ -34,10 +34,10 @@ function AppShell() {
 
         <Route path="/student/login" element={<StudentLogin />} />
         <Route path="/student/signup" element={<StudentSignup />} />
+
         <Route element={<ProtectedRoute role="student" />}>
           <Route path="/student/dashboard" element={<StudentDashboard />} />
         </Route>
-
         <Route path="/teacher/login" element={<TeacherLogin />} />
         <Route path="/teacher/signup" element={<TeacherSignup />} />
         <Route element={<ProtectedRoute role="teacher" />}>
