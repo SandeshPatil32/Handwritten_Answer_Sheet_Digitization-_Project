@@ -18,12 +18,8 @@ import {
 
 const router = Router();
 
-
-// Every assignment API requires login
 router.use(protect);
 
-
-// Student upload
 router.post(
   "/",
   authorize("student"),
@@ -31,24 +27,18 @@ router.post(
   createAssignment
 );
 
-
-// Student's own assignments
 router.get(
   "/mine",
   authorize("student"),
   getMyAssignments
 );
 
-
-// Teacher sees all student assignments
 router.get(
   "/teacher",
   authorize("teacher"),
   getAllAssignments
 );
 
-
-// Student/teacher can view authorized PDF
 router.get(
   "/:id/file",
   downloadAssignment

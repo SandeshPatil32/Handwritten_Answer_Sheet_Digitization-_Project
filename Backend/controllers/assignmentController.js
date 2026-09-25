@@ -37,10 +37,6 @@ const safeAssignment = (assignment) => ({
 });
 
 
-// ======================================
-// STUDENT UPLOAD ASSIGNMENT
-// ======================================
-
 export const createAssignment = async (
   req,
   res
@@ -166,10 +162,6 @@ export const getMyAssignments = async (
 };
 
 
-// ======================================
-// TEACHER GET ALL ASSIGNMENTS
-// ======================================
-
 export const getAllAssignments = async (
   req,
   res
@@ -206,9 +198,6 @@ export const getAllAssignments = async (
 };
 
 
-// ======================================
-// VIEW PDF
-// ======================================
 
 export const downloadAssignment = async (
   req,

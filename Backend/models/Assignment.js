@@ -57,19 +57,16 @@ const assignmentSchema = new mongoose.Schema(
       default: ""
     },
 
-    // Original PDF name
     fileName: {
       type: String,
       required: true
     },
 
-    // Name actually stored on server
     storedFileName: {
       type: String,
       required: true
     },
 
-    // Server file path
     filePath: {
       type: String,
       required: true
@@ -85,7 +82,6 @@ const assignmentSchema = new mongoose.Schema(
       required: true
     },
 
-    // Student who uploaded the assignment
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -105,7 +101,6 @@ const assignmentSchema = new mongoose.Schema(
       index: true
     },
 
-    // AI report will use this later
     report: {
       type: reportSchema,
       default: () => ({})
