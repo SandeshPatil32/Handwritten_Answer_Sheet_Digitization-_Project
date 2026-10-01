@@ -1,658 +1,227 @@
 import fs from "fs";
 import path from "path";
-
 import Assignment from "../models/Assignment.js";
 import { scanAnswerSheet } from "../services/aiService.js";
-
+import { buildSimilarity } from "../services/similarityService.js";
 
 const safeAssignment = (assignment) => ({
   id: assignment._id,
-
   title: assignment.title,
-
   subject: assignment.subject,
-
   description: assignment.description,
-
   fileName: assignment.fileName,
-
   fileSize: assignment.fileSize,
-
   mimeType: assignment.mimeType,
-
   status: assignment.status,
-
   scanResult: assignment.scanResult || null,
-
   report: assignment.report || null,
-
-  student:
-    assignment.student?._id ||
-    assignment.student,
-
-  studentName:
-    assignment.student?.name ||
-    null,
-
-  studentEmail:
-    assignment.student?.email ||
-    null,
-
+  student: assignment.student?._id || assignment.student,
+  studentName: assignment.student?.name || null,
+  studentEmail: assignment.student?.email || null,
+  studentId: assignment.student?.studentId || null,
   createdAt: assignment.createdAt,
-
   updatedAt: assignment.updatedAt
 });
 
-
-/* =========================================================
-   CREATE ASSIGNMENT
-========================================================= */
-
-export const createAssignment = async (req, res) => {
-
-  try {
-
-    if (!req.file) {
-
-      return res.status(400).json({
-        message: "Please upload a PDF file."
-      });
-
-    }
-
-    const {
-      title,
-      subject,
-      description = ""
-    } = req.body;
-
-
-    if (
-      !title?.trim() ||
-      !subject?.trim()
-    ) {
-
-      return res.status(400).json({
-        message:
-          "Title and subject are required."
-      });
-
-    }
-
-
-    const assignment =
-      await Assignment.create({
-
-        title:
-          title.trim(),
-
-        subject:
-          subject.trim(),
-
-        description:
-          description.trim(),
-
-        fileName:
-          req.file.originalname,
-
-        storedFileName:
-          req.file.filename,
-
-        filePath:
-          req.file.path,
-
-        fileSize:
-          req.file.size,
-
-        mimeType:
-          req.file.mimetype,
-
-        student:
-          req.user._id,
-
-        status:
-          "uploaded"
-
-      });
-
-
-    return res.status(201).json({
-
-      message:
-        "Assignment uploaded successfully.",
-
-      assignment:
-        safeAssignment(assignment)
-
-    });
-
-  } catch (error) {
-
-    console.error(
-      "Create assignment error:",
-      error
-    );
-
-
-    if (req.file?.path) {
-
-      fs.unlink(
-        req.file.path,
-        () => { }
-      );
-
-    }
-
-
-    return res.status(500).json({
-
-      message:
-        "Server error while uploading assignment."
-
-    });
-
-  }
-
+const escapeCsv = (value) => {
+  const text = value === null || value === undefined ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
 };
 
+const reportToCsv = (assignment) => {
+  const report = assignment.report || {};
+  const rows = [
+    ["Field", "Value"],
+    ["Student", assignment.student?.name || ""],
+    ["Student Email", assignment.student?.email || ""],
+    ["Student ID", assignment.student?.studentId || ""],
+    ["Assignment", assignment.title],
+    ["Subject", assignment.subject],
+    ["Status", assignment.status],
+    ["Marks", `${report.obtainedMarks ?? ""}/${report.totalMarks ?? ""}`],
+    ["Percentage", report.percentage ?? ""],
+    ["Answer Quality", report.answerQuality || ""],
+    ["Summary", report.summary || ""]
+  ];
 
-/* =========================================================
-   SCAN + EVALUATE ASSIGNMENT
-========================================================= */
+  if (Array.isArray(report.questionResults) && report.questionResults.length) {
+    rows.push([]);
+    rows.push([
+      "Question",
+      "Maximum Marks",
+      "Obtained Marks",
+      "Correctness",
+      "Relevance",
+      "Completeness",
+      "Verdict",
+      "Feedback"
+    ]);
+
+    report.questionResults.forEach((question) => {
+      rows.push([
+        question.questionNumber,
+        question.maximumMarks,
+        question.obtainedMarks,
+        question.correctness,
+        question.relevance,
+        question.completeness,
+        question.verdict,
+        question.feedback
+      ]);
+    });
+  }
+
+  return rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+};
+
+const getTeacherAssignments = async () =>
+  Assignment.find()
+    .populate("student", "name email studentId")
+    .sort({ createdAt: -1 });
+
+export const createAssignment = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Please upload a PDF file." });
+    }
+
+    const { title, subject, description = "" } = req.body;
+
+    if (!title?.trim() || !subject?.trim()) {
+      return res.status(400).json({ message: "Title and subject are required." });
+    }
+
+    const assignment = await Assignment.create({
+      title: title.trim(),
+      subject: subject.trim(),
+      description: description.trim(),
+      fileName: req.file.originalname,
+      storedFileName: req.file.filename,
+      filePath: req.file.path,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      student: req.user._id,
+      status: "uploaded"
+    });
+
+    return res.status(201).json({
+      message: "Assignment uploaded successfully.",
+      assignment: safeAssignment(assignment)
+    });
+  } catch (error) {
+    console.error("Create assignment error:", error);
+
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => {});
+    }
+
+    return res.status(500).json({ message: "Server error while uploading assignment." });
+  }
+};
 
 export const scanAssignment = async (req, res) => {
-
   try {
-
-    const assignment =
-      await Assignment.findById(
-        req.params.id
-      );
-
+    const assignment = await Assignment.findById(req.params.id);
 
     if (!assignment) {
-
-      return res.status(404).json({
-
-        message:
-          "Assignment not found."
-
-      });
-
+      return res.status(404).json({ message: "Assignment not found." });
     }
 
-
-    const isOwner =
-      assignment.student.toString() ===
-      req.user._id.toString();
-
-
-    const isTeacher =
-      req.user.role === "teacher";
-
+    const isOwner = assignment.student.toString() === req.user._id.toString();
+    const isTeacher = req.user.role === "teacher";
 
     if (!isOwner && !isTeacher) {
-
-      return res.status(403).json({
-
-        message:
-          "You are not authorized to scan this assignment."
-
-      });
-
+      return res.status(403).json({ message: "You are not authorized to scan this assignment." });
     }
 
-
-    if (
-      !fs.existsSync(
-        assignment.filePath
-      )
-    ) {
-
-      return res.status(404).json({
-
-        message:
-          "Stored PDF file was not found on the server."
-
-      });
-
+    if (!fs.existsSync(assignment.filePath)) {
+      return res.status(404).json({ message: "Stored PDF file was not found on the server." });
     }
 
-
-    assignment.status =
-      "processing";
-
-
+    assignment.status = "processing";
     await assignment.save();
 
-
     try {
-
-      console.log(
-        "\n======================================"
-      );
-
-      console.log(
-        "[AI] Starting assignment processing"
-      );
-
-      console.log(
-        `[AI] File: ${assignment.fileName}`
-      );
-
-      console.log(
-        "======================================\n"
-      );
-
-
-      const scanResult =
-        await scanAnswerSheet({
-
-          filePath:
-            assignment.filePath,
-
-          originalName:
-            assignment.fileName,
-
-          mimeType:
-            assignment.mimeType
-
-        });
-
-
-      /* =====================================================
-         SAVE HANDWRITING SCAN
-      ===================================================== */
-
-      assignment.scanResult = {
-
-        pagesProcessed:
-          scanResult.pagesProcessed || 0,
-
-        pages:
-          Array.isArray(
-            scanResult.pages
-          )
-
-            ? scanResult.pages.map(
-              (page) => ({
-
-                pageNumber:
-                  Number(
-                    page.page_number
-                  ),
-
-                text:
-                  String(
-                    page.text || ""
-                  ),
-
-                confidence:
-                  typeof page.confidence ===
-                    "number"
-
-                    ? page.confidence
-
-                    : null
-
-              })
-            )
-
-            : [],
-
-        scannedAt:
-          new Date()
-
-      };
-
-
-      /* =====================================================
-         AI EVALUATION
-      ===================================================== */
-
-      const evaluation =
-        scanResult.evaluation;
-
-
-      if (!evaluation) {
-
-        assignment.status =
-          "scanned";
-
-
-        await assignment.save();
-
-
-        return res.json({
-
-          message:
-            "PDF scanned successfully, but AI evaluation was not returned.",
-
-          assignment:
-            safeAssignment(
-              assignment
-            ),
-
-          scan:
-            scanResult
-
-        });
-
-      }
-
-
-      /* =====================================================
-         MARKS
-      ===================================================== */
-
-      const obtainedMarks =
-        Math.max(
-          0,
-          Math.min(
-            25,
-            Number(
-              evaluation.obtained_marks || 0
-            )
-          )
-        );
-
-
-      const totalMarks = 25;
-
-
-      const percentage =
-        Number(
-          (
-            obtainedMarks /
-            totalMarks *
-            100
-          ).toFixed(2)
-        );
-
-
-      /* =====================================================
-         QUESTION RESULTS
-      ===================================================== */
-
-      const questionResults =
-        Array.isArray(
-          evaluation.question_results
-        )
-
-          ? evaluation.question_results.map(
-            (question) => ({
-
-              questionNumber:
-                String(
-                  question.question_number ||
-                  ""
-                ),
-
-              question:
-                String(
-                  question.question ||
-                  ""
-                ),
-
-              answer:
-                String(
-                  question.answer ||
-                  ""
-                ),
-
-              maximumMarks:
-                Number(
-                  question.maximum_marks ||
-                  0
-                ),
-
-              obtainedMarks:
-                Number(
-                  question.obtained_marks ||
-                  0
-                ),
-
-              correctness:
-                Number(
-                  question.correctness ||
-                  0
-                ),
-
-              relevance:
-                Number(
-                  question.relevance ||
-                  0
-                ),
-
-              completeness:
-                Number(
-                  question.completeness ||
-                  0
-                ),
-
-              answerQuality:
-                String(
-                  question.answer_quality ||
-                  ""
-                ),
-
-              verdict:
-                String(
-                  question.verdict ||
-                  ""
-                ),
-
-              feedback:
-                String(
-                  question.feedback ||
-                  ""
-                )
-
-            })
-          )
-
-          : [];
-
-
-      /* =====================================================
-         AI CONTENT DETECTION
-      ===================================================== */
-
-      const aiContent =
-        evaluation.ai_content || {};
-
-
-      assignment.report = {
-
-        obtainedMarks,
-
-        totalMarks,
-
-        percentage,
-
-
-        answerQuality:
-          String(
-            evaluation.answer_quality ||
-            ""
-          ),
-
-
-        summary:
-          String(
-            evaluation.summary ||
-            ""
-          ),
-
-
-        strengths:
-          Array.isArray(
-            evaluation.strengths
-          )
-
-            ? evaluation.strengths
-
-            : [],
-
-
-        weaknesses:
-          Array.isArray(
-            evaluation.weaknesses
-          )
-
-            ? evaluation.weaknesses
-
-            : [],
-
-
-        overallCorrectness:
-          Number(
-            evaluation.overall_correctness ||
-            0
-          ),
-
-
-        overallRelevance:
-          Number(
-            evaluation.overall_relevance ||
-            0
-          ),
-
-
-        overallCompleteness:
-          Number(
-            evaluation.overall_completeness ||
-            0
-          ),
-
-
-        questionResults,
-
-
-        aiContent: {
-
-          classification:
-            String(
-              aiContent.classification ||
-              "Inconclusive"
-            ),
-
-          probability:
-            Math.max(
-              0,
-              Math.min(
-                100,
-                Number(
-                  aiContent.probability ||
-                  0
-                )
-              )
-            ),
-
-          confidence:
-            Math.max(
-              0,
-              Math.min(
-                100,
-                Number(
-                  aiContent.confidence ||
-                  0
-                )
-              )
-            ),
-
-          indicators:
-            Array.isArray(
-              aiContent.indicators
-            )
-
-              ? aiContent.indicators
-
-              : [],
-
-          explanation:
-            String(
-              aiContent.explanation ||
-              ""
-            )
-
-        },
-
-
-        evaluatedAt:
-          new Date()
-
-      };
-
-
-      assignment.status =
-        "evaluated";
-
-
-      await assignment.save();
-
-
-      console.log(
-        "\n======================================"
-      );
-
-      console.log(
-        "[AI] Evaluation completed"
-      );
-
-      console.log(
-        `[AI] Marks: ${obtainedMarks}/25`
-      );
-
-      console.log(
-        `[AI] Percentage: ${percentage}%`
-      );
-
-      console.log(
-        `[AI] AI Content: ${aiContent.classification ||
-        "Inconclusive"
-        }`
-      );
-
-      console.log(
-        "======================================\n"
-      );
-
-
-      return res.json({
-
-        message:
-          "PDF scanned and evaluated successfully.",
-
-        assignment:
-          safeAssignment(
-            assignment
-          ),
-
-        scan:
-          scanResult
-
+      const scanResult = await scanAnswerSheet({
+        filePath: assignment.filePath,
+        originalName: assignment.fileName,
+        mimeType: assignment.mimeType
       });
 
+      assignment.scanResult = {
+        pagesProcessed: scanResult.pagesProcessed || 0,
+        pages: Array.isArray(scanResult.pages)
+          ? scanResult.pages.map((page) => ({
+              pageNumber: Number(page.page_number),
+              text: String(page.text || ""),
+              confidence:
+                typeof page.confidence === "number" ? page.confidence : null
+            }))
+          : [],
+        scannedAt: new Date()
+      };
 
-    } catch (aiError) {
+      /*
+        If your current AI service already returns an evaluation object,
+        preserve it here. This keeps the existing marks/report pipeline.
+      */
+      if (scanResult.evaluation) {
+        const evaluation = scanResult.evaluation;
+        const obtainedMarks = Math.max(
+          0,
+          Math.min(25, Number(evaluation.obtained_marks || 0))
+        );
+        const totalMarks = Number(evaluation.total_marks || 25) || 25;
 
-      console.error(
-        "\n[AI SERVICE ERROR]"
-      );
-
-      console.error(
-        aiError.response?.data ||
-        aiError.message
-      );
-
-
-      assignment.status =
-        "failed";
-
+        assignment.report = {
+          ...(assignment.report?.toObject?.() || assignment.report || {}),
+          obtainedMarks,
+          totalMarks,
+          percentage: Number(((obtainedMarks / totalMarks) * 100).toFixed(2)),
+          answerQuality: String(evaluation.answer_quality || ""),
+          summary: String(evaluation.summary || ""),
+          strengths: Array.isArray(evaluation.strengths) ? evaluation.strengths : [],
+          weaknesses: Array.isArray(evaluation.weaknesses) ? evaluation.weaknesses : [],
+          overallCorrectness: Number(evaluation.overall_correctness || 0),
+          overallRelevance: Number(evaluation.overall_relevance || 0),
+          overallCompleteness: Number(evaluation.overall_completeness || 0),
+          questionResults: Array.isArray(evaluation.question_results)
+            ? evaluation.question_results.map((question) => ({
+                questionNumber: String(question.question_number || ""),
+                question: String(question.question || ""),
+                answer: String(question.answer || ""),
+                maximumMarks: Number(question.maximum_marks || 0),
+                obtainedMarks: Number(question.obtained_marks || 0),
+                correctness: Number(question.correctness || 0),
+                relevance: Number(question.relevance || 0),
+                completeness: Number(question.completeness || 0),
+                answerQuality: String(question.answer_quality || ""),
+                verdict: String(question.verdict || ""),
+                feedback: String(question.feedback || "")
+              }))
+            : [],
+          aiContent: evaluation.ai_content || null,
+          evaluatedAt: new Date()
+        };
+        assignment.status = "evaluated";
+      } else {
+        assignment.status = "scanned";
+      }
 
       await assignment.save();
 
+      return res.json({
+        message: assignment.status === "evaluated"
+          ? "PDF scanned and evaluated successfully."
+          : "PDF scanned successfully.",
+        assignment: safeAssignment(assignment),
+        scan: scanResult
+      });
+    } catch (aiError) {
+      console.error("AI service error:", aiError.response?.data || aiError.message);
+
+      assignment.status = "failed";
+      await assignment.save();
 
       const aiMessage =
         aiError.response?.data?.error ||
@@ -660,256 +229,227 @@ export const scanAssignment = async (req, res) => {
         aiError.message ||
         "AI service is unavailable.";
 
-
       return res.status(502).json({
-
-        message:
-          "AI scanning/evaluation service failed.",
-
-        error:
-          aiMessage
-
+        message: "AI scanning service failed.",
+        error: aiMessage
       });
+    }
+  } catch (error) {
+    console.error("Scan assignment error:", error);
+    return res.status(500).json({ message: "Server error while scanning assignment." });
+  }
+};
 
+export const getMyAssignments = async (req, res) => {
+  try {
+    const assignments = await Assignment.find({ student: req.user._id }).sort({ createdAt: -1 });
+    return res.json({ assignments: assignments.map(safeAssignment) });
+  } catch (error) {
+    console.error("Get student assignments error:", error);
+    return res.status(500).json({ message: "Server error while loading assignments." });
+  }
+};
+
+export const getAllAssignments = async (req, res) => {
+  try {
+    const assignments = await getTeacherAssignments();
+    return res.json({ assignments: assignments.map(safeAssignment) });
+  } catch (error) {
+    console.error("Get all assignments error:", error);
+    return res.status(500).json({ message: "Server error while loading teacher assignments." });
+  }
+};
+
+export const getSimilarityResults = async (req, res) => {
+  try {
+    const assignments = await getTeacherAssignments();
+    const results = [];
+
+    for (let i = 0; i < assignments.length; i += 1) {
+      for (let j = i + 1; j < assignments.length; j += 1) {
+        const first = assignments[i];
+        const second = assignments[j];
+
+        if (first.student?._id?.toString() === second.student?._id?.toString()) {
+          continue;
+        }
+
+        if (first.subject?.trim().toLowerCase() !== second.subject?.trim().toLowerCase()) {
+          continue;
+        }
+
+        const firstText = first.scanResult?.pages?.map((page) => page.text || "").join(" ").trim();
+        const secondText = second.scanResult?.pages?.map((page) => page.text || "").join(" ").trim();
+
+        if (!firstText || !secondText) continue;
+
+        const result = buildSimilarity(first, second);
+        results.push({
+          ...result,
+          assignmentA: {
+            id: first._id,
+            title: first.title,
+            status: first.status
+          },
+          assignmentB: {
+            id: second._id,
+            title: second.title,
+            status: second.status
+          }
+        });
+      }
     }
 
-
-  } catch (error) {
-
-    console.error(
-      "Scan assignment error:",
-      error
-    );
-
-
-    return res.status(500).json({
-
-      message:
-        "Server error while scanning assignment."
-
-    });
-
-  }
-
-};
-
-
-/* =========================================================
-   GET STUDENT ASSIGNMENTS
-========================================================= */
-
-export const getMyAssignments = async (
-  req,
-  res
-) => {
-
-  try {
-
-    const assignments =
-      await Assignment.find({
-
-        student:
-          req.user._id
-
-      })
-        .sort({
-          createdAt: -1
-        });
-
+    results.sort((a, b) => b.score - a.score);
 
     return res.json({
-
-      assignments:
-        assignments.map(
-          safeAssignment
-        )
-
+      count: results.length,
+      results
     });
-
   } catch (error) {
-
-    console.error(
-      "Get student assignments error:",
-      error
-    );
-
-
-    return res.status(500).json({
-
-      message:
-        "Server error while loading assignments."
-
-    });
-
+    console.error("Similarity analysis error:", error);
+    return res.status(500).json({ message: "Server error while calculating student similarity." });
   }
-
 };
 
-
-/* =========================================================
-   GET ALL ASSIGNMENTS FOR TEACHER
-========================================================= */
-
-export const getAllAssignments = async (
-  req,
-  res
-) => {
-
+export const downloadAssignment = async (req, res) => {
   try {
-
-    const assignments =
-      await Assignment.find()
-
-        .populate(
-          "student",
-          "name email studentId"
-        )
-
-        .sort({
-          createdAt: -1
-        });
-
-
-    return res.json({
-
-      assignments:
-        assignments.map(
-          safeAssignment
-        )
-
-    });
-
-  } catch (error) {
-
-    console.error(
-      "Get all assignments error:",
-      error
-    );
-
-
-    return res.status(500).json({
-
-      message:
-        "Server error while loading teacher assignments."
-
-    });
-
-  }
-
-};
-
-
-/* =========================================================
-   DOWNLOAD ASSIGNMENT
-========================================================= */
-
-export const downloadAssignment = async (
-  req,
-  res
-) => {
-
-  try {
-
-    const assignment =
-      await Assignment.findById(
-        req.params.id
-      );
-
+    const assignment = await Assignment.findById(req.params.id);
 
     if (!assignment) {
-
-      return res.status(404).json({
-
-        message:
-          "Assignment not found."
-
-      });
-
+      return res.status(404).json({ message: "Assignment not found." });
     }
 
-
-    const isOwner =
-      assignment.student.toString() ===
-      req.user._id.toString();
-
-
-    const isTeacher =
-      req.user.role === "teacher";
-
+    const isOwner = assignment.student.toString() === req.user._id.toString();
+    const isTeacher = req.user.role === "teacher";
 
     if (!isOwner && !isTeacher) {
-
-      return res.status(403).json({
-
-        message:
-          "You are not authorized to access this file."
-
-      });
-
+      return res.status(403).json({ message: "You are not authorized to access this file." });
     }
 
-
-    if (
-      !fs.existsSync(
-        assignment.filePath
-      )
-    ) {
-
-      return res.status(404).json({
-
-        message:
-          "Stored PDF file was not found on the server."
-
-      });
-
+    if (!fs.existsSync(assignment.filePath)) {
+      return res.status(404).json({ message: "Stored PDF file was not found on the server." });
     }
 
+    const safeName = path.basename(assignment.fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const shouldDownload = req.query.download === "1";
 
-    const safeName =
-      path
-        .basename(
-          assignment.fileName
-        )
-        .replace(
-          /[^a-zA-Z0-9._-]/g,
-          "_"
-        );
-
-
-    res.setHeader(
-      "Content-Type",
-      assignment.mimeType ||
-      "application/pdf"
-    );
-
-
+    res.setHeader("Content-Type", assignment.mimeType || "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="${safeName}"`
+      `${shouldDownload ? "attachment" : "inline"}; filename="${safeName}"`
     );
 
-
-    return res.sendFile(
-      path.resolve(
-        assignment.filePath
-      )
-    );
-
+    return res.sendFile(path.resolve(assignment.filePath));
   } catch (error) {
+    console.error("Download assignment error:", error);
+    return res.status(500).json({ message: "Server error while opening assignment." });
+  }
+};
 
-    console.error(
-      "Download assignment error:",
-      error
+export const downloadReport = async (req, res) => {
+  try {
+    const assignment = await Assignment.findById(req.params.id).populate(
+      "student",
+      "name email studentId"
     );
 
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found." });
+    }
 
-    return res.status(500).json({
+    const isOwner = assignment.student?._id?.toString() === req.user._id.toString();
+    const isTeacher = req.user.role === "teacher";
 
-      message:
-        "Server error while opening assignment."
+    if (!isOwner && !isTeacher) {
+      return res.status(403).json({ message: "You are not authorized to access this report." });
+    }
 
+    const format = String(req.query.format || "json").toLowerCase();
+    const baseName = path
+      .basename(assignment.fileName, path.extname(assignment.fileName))
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+    if (format === "csv") {
+      const csv = reportToCsv(assignment);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${baseName}_evaluation_report.csv"`
+      );
+      return res.send(`\ufeff${csv}`);
+    }
+
+    const report = {
+      generatedAt: new Date().toISOString(),
+      assignment: safeAssignment(assignment),
+      extractedPages: assignment.scanResult?.pages || [],
+      evaluation: assignment.report || null
+    };
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${baseName}_evaluation_report.json"`
+    );
+
+    return res.send(JSON.stringify(report, null, 2));
+  } catch (error) {
+    console.error("Download report error:", error);
+    return res.status(500).json({ message: "Server error while generating the report." });
+  }
+};
+
+export const downloadSimilarityReport = async (req, res) => {
+  try {
+    const assignments = await getTeacherAssignments();
+    const results = [];
+
+    for (let i = 0; i < assignments.length; i += 1) {
+      for (let j = i + 1; j < assignments.length; j += 1) {
+        const first = assignments[i];
+        const second = assignments[j];
+
+        if (first.student?._id?.toString() === second.student?._id?.toString()) continue;
+        if (first.subject?.trim().toLowerCase() !== second.subject?.trim().toLowerCase()) continue;
+
+        const firstText = first.scanResult?.pages?.map((page) => page.text || "").join(" ").trim();
+        const secondText = second.scanResult?.pages?.map((page) => page.text || "").join(" ").trim();
+        if (!firstText || !secondText) continue;
+
+        const result = buildSimilarity(first, second);
+        results.push(result);
+      }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+
+    const rows = [
+      ["Student A", "Student B", "Subject", "Similarity %", "Status", "Common Phrases"]
+    ];
+
+    results.forEach((result) => {
+      rows.push([
+        result.studentA.name,
+        result.studentB.name,
+        result.subject,
+        result.score,
+        result.status,
+        result.commonPhrases.join(" | ")
+      ]);
     });
 
-  }
+    const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
 
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="student_similarity_report.csv"'
+    );
+
+    return res.send(`\ufeff${csv}`);
+  } catch (error) {
+    console.error("Download similarity report error:", error);
+    return res.status(500).json({ message: "Server error while generating similarity report." });
+  }
 };

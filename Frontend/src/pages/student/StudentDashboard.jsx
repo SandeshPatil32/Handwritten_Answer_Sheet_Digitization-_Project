@@ -1,95 +1,29 @@
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
-  FileText,
-  UploadCloud,
-  Eye,
-  Clock3,
-  CheckCircle2,
-  ScanText,
   AlertCircle,
+  CheckCircle2,
+  Clock3,
+  Download,
+  Eye,
+  FileBarChart2,
+  FileText,
+  ScanText,
+  UploadCloud
 } from "lucide-react";
-
 import api from "../../services/api";
-
 import {
-  fetchMyAssignments,
-  uploadAssignment,
-  scanAssignment,
   clearAssignmentError,
+  fetchMyAssignments,
+  scanAssignment,
+  uploadAssignment
 } from "../../features/assignments/assignmentSlice";
-
-/* =========================================================
-   HELPER FUNCTIONS
-========================================================= */
-
-const formatDate = (dateString) => {
-  if (!dateString) return "N/A";
-
-  const date = new Date(dateString);
-
-  if (Number.isNaN(date.getTime())) {
-    return "N/A";
-  }
-
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-};
-
-const formatBytes = (bytes) => {
-  if (bytes === null || bytes === undefined || Number(bytes) <= 0) {
-    return "0 KB";
-  }
-
-  const value = Number(bytes);
-
-  if (Number.isNaN(value)) {
-    return "N/A";
-  }
-
-  const units = ["Bytes", "KB", "MB", "GB"];
-
-  const index = Math.min(
-    Math.floor(Math.log(value) / Math.log(1024)),
-    units.length - 1
-  );
-
-  const converted = value / Math.pow(1024, index);
-
-  return `${converted.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
-};
-
-const formatConfidence = (confidence) => {
-  if (confidence === null || confidence === undefined) {
-    return "N/A";
-  }
-
-  const value = Number(confidence);
-
-  if (Number.isNaN(value)) {
-    return "N/A";
-  }
-
-
-  const percentage = value <= 1 ? value * 100 : value;
-
-  return `${Math.round(Math.max(0, Math.min(100, percentage)))}%`;
-};
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-/* =========================================================
-   STUDENT DASHBOARD
-========================================================= */
-
 export default function StudentDashboard() {
   const dispatch = useDispatch();
-
   const { user } = useSelector((state) => state.auth);
-
   const {
     items: assignments = [],
     loading,
@@ -97,42 +31,34 @@ export default function StudentDashboard() {
     scanLoading,
     error,
     uploadError,
-    scanError,
+    scanError
   } = useSelector((state) => state.assignments);
 
   const [form, setForm] = useState({
     title: "",
     subject: "",
-    description: "",
+    description: ""
   });
-
   const [file, setFile] = useState(null);
   const [success, setSuccess] = useState("");
   const [validationError, setValidationError] = useState("");
   const [scanningId, setScanningId] = useState(null);
-
-  /* =======================================================
-     LOAD ASSIGNMENTS
-  ======================================================= */
+  const [downloadingId, setDownloadingId] = useState(null);
 
   useEffect(() => {
     dispatch(fetchMyAssignments());
     dispatch(clearAssignmentError());
   }, [dispatch]);
 
-  /* =======================================================
-     HANDLE FORM SUBMIT
-  ======================================================= */
-
   const handleSubmit = async (event) => {
     event.preventDefault();
-
     setSuccess("");
     setValidationError("");
 
-    /* ---------------------------------------------
-       Validate file
-    --------------------------------------------- */
+    if (!form.title.trim() || !form.subject.trim()) {
+      setValidationError("Assignment title and subject are required.");
+      return;
+    }
 
     if (!file) {
       setValidationError("Please select an answered PDF.");
@@ -149,1063 +75,444 @@ export default function StudentDashboard() {
       return;
     }
 
-    /* ---------------------------------------------
-       Validate title
-    --------------------------------------------- */
-
-    if (!form.title.trim()) {
-      setValidationError("Assignment title is required.");
-      return;
-    }
-
-    /* ---------------------------------------------
-       Validate subject
-    --------------------------------------------- */
-
-    if (!form.subject.trim()) {
-      setValidationError("Subject is required.");
-      return;
-    }
-
-    /* ---------------------------------------------
-       Create multipart form data
-    --------------------------------------------- */
-
     const formData = new FormData();
-
     formData.append("title", form.title.trim());
     formData.append("subject", form.subject.trim());
     formData.append("description", form.description.trim());
     formData.append("assignmentPdf", file);
 
-    /* ---------------------------------------------
-       Upload assignment
-    --------------------------------------------- */
-
     const uploadResult = await dispatch(uploadAssignment(formData));
 
-    if (!uploadAssignment.fulfilled.match(uploadResult)) {
-      return;
-    }
-
-    /*
-      Depending on your Redux response structure,
-      the ID should normally be available here.
-    */
+    if (!uploadAssignment.fulfilled.match(uploadResult)) return;
 
     const assignmentId =
-      uploadResult.payload?.id ||
-      uploadResult.payload?.assignment?.id;
+      uploadResult.payload?.id || uploadResult.payload?.assignment?.id;
 
     if (!assignmentId) {
-      setValidationError(
-        "Assignment uploaded, but assignment ID was not returned by the server."
-      );
+      setValidationError("Upload succeeded, but the assignment ID was not returned.");
       return;
     }
 
-    /* ---------------------------------------------
-       Reset form
-    --------------------------------------------- */
-
-    setForm({
-      title: "",
-      subject: "",
-      description: "",
-    });
-
+    setForm({ title: "", subject: "", description: "" });
     setFile(null);
-
-    const fileInput = document.getElementById("assignmentPdf");
-
-    if (fileInput) {
-      fileInput.value = "";
-    }
-
-    /* ---------------------------------------------
-       Start AI scanning
-    --------------------------------------------- */
+    const input = document.getElementById("assignmentPdf");
+    if (input) input.value = "";
 
     setScanningId(assignmentId);
-
-    setSuccess(
-      "PDF uploaded. Sending it to the Python AI service for scanning..."
-    );
+    setSuccess("PDF uploaded. AI processing has started...");
 
     const scanResult = await dispatch(scanAssignment(assignmentId));
-
     setScanningId(null);
 
     if (scanAssignment.fulfilled.match(scanResult)) {
-      setSuccess(
-        "PDF uploaded and evaluated successfully. Marks and AI analysis are now available below."
-      );
-
-      /*
-        Refresh assignment list so the latest report
-        is displayed immediately.
-      */
+      setSuccess("PDF scanned successfully. Your report is ready when evaluation data is available.");
       dispatch(fetchMyAssignments());
     }
   };
 
-  /* =======================================================
-     OPEN PDF
-  ======================================================= */
+  const downloadBlob = async (url, filename) => {
+    try {
+      setDownloadingId(url);
+      const response = await api.get(url, { responseType: "blob" });
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      alert(err.response?.data?.message || "Unable to download the file.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const openPdf = async (assignmentId) => {
     const newTab = window.open("about:blank", "_blank");
 
     try {
-      const response = await api.get(
-        `/assignments/${assignmentId}/file`,
-        {
-          responseType: "blob",
-        }
-      );
-
+      const response = await api.get(`/assignments/${assignmentId}/file`, {
+        responseType: "blob"
+      });
       const url = URL.createObjectURL(response.data);
-
-      if (newTab) {
-        newTab.location.href = url;
-      } else {
-        window.open(url, "_blank");
-      }
-
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-      }, 60_000);
+      if (newTab) newTab.location.href = url;
+      else window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
-      if (newTab) {
-        newTab.close();
-      }
-
-      alert(
-        err.response?.data?.message ||
-        "Unable to open the PDF."
-      );
+      if (newTab) newTab.close();
+      alert(err.response?.data?.message || "Unable to open the PDF.");
     }
   };
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-50 py-10">
+    <main className="min-h-[calc(100vh-4rem)] bg-slate-50 py-8 sm:py-10">
       <div className="container-page">
-
-        {/* =================================================
-            HEADER
-        ================================================= */}
-
-        <section className="rounded-2xl bg-gradient-to-r from-blue-700 to-indigo-700 p-8 text-white shadow-sm">
-          <p className="text-sm text-blue-100">
-            Student Dashboard
-          </p>
-
-          <h1 className="mt-2 text-3xl font-bold">
-            Welcome, {user?.name || "Student"}
-          </h1>
-
-          <p className="mt-2 max-w-3xl text-blue-100">
-            Upload your answered assignment PDF for AI-powered evaluation, including handwriting recognition, answer correctness, marks calculation, similarity detection, and AI-content analysis.
-          </p>
+        <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-blue-700 via-indigo-700 to-slate-900 p-6 text-white shadow-lg sm:p-8">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-100">Student Workspace</p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+                Welcome, {user?.name || "Student"}
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">
+                Upload an answered PDF, track handwriting processing, view evaluation results, and download your submission/report.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-4 backdrop-blur">
+              <p className="text-xs uppercase tracking-wider text-blue-100">Assignments</p>
+              <p className="mt-1 text-3xl font-bold">{assignments.length}</p>
+            </div>
+          </div>
         </section>
 
-  
-
-        <section className="mt-7 grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-
+        <section className="mt-7 grid gap-6 xl:grid-cols-[390px_1fr]">
+          <div className="dashboard-card h-fit">
             <div className="flex items-center gap-3">
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                <UploadCloud size={22} />
-              </div>
-
+              <div className="icon-box"><UploadCloud size={22} /></div>
               <div>
-                <h2 className="font-bold text-slate-900">
-                  Upload & Scan Assignment
-                </h2>
-
-                <p className="text-xs text-slate-500">
-                  PDF only · maximum 10 MB
-                </p>
+                <h2 className="section-title">Upload & Scan</h2>
+                <p className="section-subtitle">PDF only · maximum 10 MB</p>
               </div>
-
             </div>
 
-            <form
-              onSubmit={handleSubmit}
-              className="mt-6 space-y-4"
-            >
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              {validationError && <Alert message={validationError} />}
+              {uploadError && <Alert message={uploadError} />}
+              {scanError && <Alert message={scanError} />}
+              {success && <Alert message={success} type="success" />}
 
-      
-
-              {validationError && (
-                <Alert
-                  message={validationError}
-                  type="error"
-                />
-              )}
-
-              {/* Upload error */}
-
-              {uploadError && (
-                <Alert
-                  message={uploadError}
-                  type="error"
-                />
-              )}
-
-            
-
-              {scanError && (
-                <Alert
-                  message={scanError}
-                  type="error"
-                />
-              )}
-
-
-
-              {success && (
-                <Alert
-                  message={success}
-                  type="success"
-                />
-              )}
-
-
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Assignment Title
-                </label>
-
+              <Field label="Assignment Title">
                 <input
                   className="input-field"
                   required
                   value={form.title}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      title: e.target.value,
-                    })
-                  }
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="e.g. NLP Unit 2 Assignment"
                 />
-              </div>
+              </Field>
 
-
-
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Subject
-                </label>
-
+              <Field label="Subject">
                 <input
                   className="input-field"
                   required
                   value={form.subject}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      subject: e.target.value,
-                    })
-                  }
+                  onChange={(e) => setForm({ ...form, subject: e.target.value })}
                   placeholder="e.g. Artificial Intelligence"
                 />
-              </div>
+              </Field>
 
-
-
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Description
-                </label>
-
+              <Field label="Description">
                 <textarea
                   className="input-field min-h-24 resize-y"
                   value={form.description}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      description: e.target.value,
-                    })
-                  }
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
                   placeholder="Optional assignment details"
                 />
-              </div>
+              </Field>
 
-
-
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Answered Assignment PDF
-                </label>
-
+              <Field label="Answered Assignment PDF">
                 <input
                   id="assignmentPdf"
-                  className="block w-full rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm"
+                  className="block w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:font-semibold file:text-white"
                   type="file"
                   accept="application/pdf,.pdf"
                   required
-                  onChange={(e) =>
-                    setFile(
-                      e.target.files?.[0] || null
-                    )
-                  }
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
                 />
-              </div>
-
-
+                {file && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Selected: {file.name} · {formatBytes(file.size)}
+                  </p>
+                )}
+              </Field>
 
               <button
                 type="submit"
-                disabled={
-                  uploadLoading ||
-                  scanLoading ||
-                  scanningId !== null
-                }
+                disabled={uploadLoading || scanLoading || scanningId !== null}
                 className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {uploadLoading
                   ? "Uploading..."
                   : scanLoading || scanningId !== null
-                    ? "Scanning with AI..."
+                    ? "Processing with AI..."
                     : "Upload & Scan PDF"}
               </button>
-
             </form>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-
-            <div className="flex items-center justify-between">
-
+          <div className="dashboard-card">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  My Assignments
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  Uploaded PDFs and AI evaluation results.
-                </p>
+                <h2 className="section-title text-xl">My Assignments</h2>
+                <p className="section-subtitle">Your submissions, extracted answers and evaluation reports.</p>
               </div>
-
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-                {assignments.length} uploaded
-              </span>
-
+              <span className="badge-blue">{assignments.length} uploaded</span>
             </div>
 
-
-
-            {error && (
-              <div className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-
-
+            {error && <Alert message={error} />}
 
             {loading ? (
-
-              <div className="py-12 text-center text-sm text-slate-500">
-                Loading assignments...
-              </div>
-
+              <LoadingState text="Loading assignments..." />
             ) : assignments.length === 0 ? (
-
-              
-
-              <div className="mt-6 rounded-xl border border-dashed border-slate-300 p-10 text-center">
-
-                <FileText
-                  className="mx-auto text-slate-400"
-                  size={34}
-                />
-
-                <p className="mt-3 font-semibold text-slate-700">
-                  No assignments yet
-                </p>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  Upload your first answered assignment
-                  using the form.
-                </p>
-
-              </div>
-
+              <EmptyState />
             ) : (
-
-
-
               <div className="mt-6 space-y-4">
-
                 {assignments.map((assignment) => (
                   <AssignmentCard
                     key={assignment.id}
                     assignment={assignment}
                     onOpen={openPdf}
-                    isScanning={
-                      scanningId === assignment.id
-                    }
+                    onDownload={downloadBlob}
+                    downloadingId={downloadingId}
+                    isScanning={scanningId === assignment.id}
                   />
                 ))}
-
               </div>
             )}
-
           </div>
-
         </section>
       </div>
     </main>
   );
 }
 
-
-
-function AssignmentCard({
-  assignment,
-  onOpen,
-  isScanning,
-}) {
-  const reportReady =
-    assignment.status === "evaluated" &&
-    assignment.report?.obtainedMarks !== null &&
-    assignment.report?.obtainedMarks !== undefined;
-
-  const pages =
-    assignment.scanResult?.pages || [];
-
-  const aiContent =
-    assignment.report?.aiContent || null;
+function AssignmentCard({ assignment, onOpen, onDownload, downloadingId, isScanning }) {
+  const reportReady = assignment.status === "evaluated" && assignment.report?.obtainedMarks != null;
+  const pages = assignment.scanResult?.pages || [];
 
   return (
-    <article className="rounded-xl border border-slate-200 p-5">
-
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-
+    <article className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-blue-200 hover:shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex gap-3">
-
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-            <FileText size={19} />
+          <div className="icon-box bg-slate-100 text-slate-600"><FileText size={19} /></div>
+          <div className="min-w-0">
+            <h3 className="truncate font-bold text-slate-900">{assignment.title || "Untitled Assignment"}</h3>
+            <p className="mt-1 text-xs text-slate-500">{assignment.subject || "No subject"} · {formatDate(assignment.createdAt)}</p>
+            <p className="mt-1 truncate text-xs text-slate-400">{assignment.fileName} · {formatBytes(assignment.fileSize)}</p>
           </div>
-
-          <div>
-
-            <h3 className="font-bold text-slate-900">
-              {assignment.title || "Untitled Assignment"}
-            </h3>
-
-            <p className="mt-1 text-xs text-slate-500">
-              {assignment.subject || "No subject"} ·{" "}
-              {formatDate(assignment.createdAt)}
-            </p>
-
-            <p className="mt-1 text-xs text-slate-400">
-              {assignment.fileName || "PDF"} ·{" "}
-              {formatBytes(assignment.fileSize)}
-            </p>
-
-          </div>
-
         </div>
 
-
-
-        <button
-          type="button"
-          onClick={() => onOpen(assignment.id)}
-          className="btn-secondary gap-2 px-3 py-2 text-xs"
-        >
-          <Eye size={15} />
-          View PDF
-        </button>
-
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onOpen(assignment.id)} className="btn-secondary gap-2 px-3 py-2 text-xs">
+            <Eye size={15} /> View PDF
+          </button>
+          <button
+            onClick={() => onDownload(`/assignments/${assignment.id}/file?download=1`, `${safeFileName(assignment.fileName)}.pdf`)}
+            className="btn-secondary gap-2 px-3 py-2 text-xs"
+            disabled={downloadingId?.includes(`/assignments/${assignment.id}/file`)}
+          >
+            <Download size={15} /> Download PDF
+          </button>
+        </div>
       </div>
 
-      {/* ===================================================
-          RESULT AREA
-      =================================================== */}
-
-      <div className="mt-5 rounded-xl bg-slate-50 p-4">
-
-        {/* =================================================
-            PROCESSING
-        ================================================= */}
-
-        {isScanning ||
-          assignment.status === "processing" ? (
-
-          <div className="flex gap-3">
-
-            <ScanText
-              className="mt-0.5 shrink-0 animate-pulse text-blue-600"
-              size={19}
-            />
-
-            <div>
-
-              <p className="text-sm font-semibold text-slate-800">
-                AI evaluation in progress
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                The AI is reading the handwriting,
-                identifying answers, checking correctness,
-                evaluating answer quality, calculating
-                suggested marks out of 25, and analysing
-                possible AI-generated content.
-              </p>
-
-            </div>
-
-          </div>
-
+      <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+        {isScanning || assignment.status === "processing" ? (
+          <ProcessState />
         ) : reportReady ? (
-
-  
-
-          <div>
-
-          
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-              <ReportValue
-                label="Marks"
-                value={`${assignment.report.obtainedMarks}/25`}
-              />
-
-              <ReportValue
-                label="Percentage"
-                value={`${assignment.report.percentage ?? 0}%`}
-              />
-
-              <ReportValue
-                label="Correctness"
-                value={`${Math.round(
-                  assignment.report.overallCorrectness || 0
-                )}%`}
-              />
-
-              <ReportValue
-                label="Completeness"
-                value={`${Math.round(
-                  assignment.report.overallCompleteness || 0
-                )}%`}
-              />
-
-            </div>
-
-            {/* =============================================
-                RELEVANCE
-            ============================================= */}
-
-            <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
-
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Overall Relevance
-              </p>
-
-              <p className="mt-1 text-xl font-bold text-slate-900">
-                {Math.round(
-                  assignment.report.overallRelevance || 0
-                )}
-                %
-              </p>
-
-            </div>
-
-            {/* =============================================
-                ANSWER QUALITY
-            ============================================= */}
-
-            <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
-
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Overall Answer Quality
-              </p>
-
-              <p className="mt-1 font-bold text-slate-900">
-                {assignment.report.answerQuality || "Not available"}
-              </p>
-
-              {assignment.report.summary && (
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  {assignment.report.summary}
-                </p>
-              )}
-
-            </div>
-
-      
-
-            {aiContent && (
-
-              <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
-
-                <div className="flex items-center justify-between gap-3">
-
-                  <div>
-
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      AI Content Analysis
-                    </p>
-
-                    <p className="mt-1 font-bold text-slate-900">
-                      {aiContent.classification ||
-                        "Inconclusive"}
-                    </p>
-
-                  </div>
-
-                  <div className="text-right">
-
-                    <p className="text-xs text-slate-500">
-                      Estimated likelihood
-                    </p>
-
-                    <p className="font-bold text-slate-900">
-                      {Math.round(
-                        aiContent.probability || 0
-                      )}
-                      %
-                    </p>
-
-                  </div>
-
-                </div>
-
-                <p className="mt-2 text-xs leading-5 text-slate-500">
-                  This is an AI-content likelihood
-                  estimate, not proof of AI usage.
-                </p>
-
-                {aiContent.confidence !== undefined &&
-                  aiContent.confidence !== null && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Detection confidence:{" "}
-                      {Math.round(
-                        aiContent.confidence || 0
-                      )}
-                      %
-                    </p>
-                  )}
-
-                {aiContent.explanation && (
-                  <p className="mt-3 text-sm leading-6 text-slate-600">
-                    {aiContent.explanation}
-                  </p>
-                )}
-
-                {aiContent.indicators?.length > 0 && (
-
-                  <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-600">
-
-                    {aiContent.indicators.map(
-                      (indicator, index) => (
-                        <li key={index}>
-                          {indicator}
-                        </li>
-                      )
-                    )}
-
-                  </ul>
-
-                )}
-
-              </div>
-            )}
-
-            {/* =============================================
-                QUESTION-WISE RESULTS
-            ============================================= */}
-
-            {assignment.report.questionResults?.length > 0 && (
-
-              <div className="mt-5">
-
-                <p className="mb-3 text-sm font-bold text-slate-900">
-                  Question-wise Evaluation
-                </p>
-
-                <div className="space-y-3">
-
-                  {assignment.report.questionResults.map(
-                    (question, index) => (
-
-                      <div
-                        key={`${question.questionNumber || "question"}-${index}`}
-                        className="rounded-lg border border-slate-200 bg-white p-4"
-                      >
-
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-
-                          <p className="font-semibold text-slate-900">
-                            Q{question.questionNumber || index + 1}
-                          </p>
-
-                          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                            {question.obtainedMarks ?? 0}/
-                            {question.maximumMarks ?? 0}
-                          </span>
-
-                        </div>
-
-                        {question.question && (
-                          <div className="mt-3">
-
-                            <p className="text-xs font-semibold text-slate-500">
-                              Question
-                            </p>
-
-                            <p className="mt-1 text-sm text-slate-700">
-                              {question.question}
-                            </p>
-
-                          </div>
-                        )}
-
-                        <p className="mt-2 text-xs font-semibold text-slate-500">
-                          Verdict:{" "}
-                          <span className="text-slate-800">
-                            {question.verdict || "Not available"}
-                          </span>
-                        </p>
-
-                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-
-                          <Metric
-                            label="Correctness"
-                            value={question.correctness}
-                          />
-
-                          <Metric
-                            label="Relevance"
-                            value={question.relevance}
-                          />
-
-                          <Metric
-                            label="Completeness"
-                            value={question.completeness}
-                          />
-
-                        </div>
-
-                        {question.answer && (
-                          <div className="mt-3">
-
-                            <p className="text-xs font-semibold text-slate-500">
-                              Extracted Answer
-                            </p>
-
-                            <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                              {question.answer}
-                            </p>
-
-                          </div>
-                        )}
-
-                        {question.answerQuality && (
-                          <p className="mt-3 text-xs text-slate-500">
-                            Answer quality:{" "}
-                            <span className="font-semibold text-slate-700">
-                              {question.answerQuality}
-                            </span>
-                          </p>
-                        )}
-
-                        {question.feedback && (
-                          <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm leading-6 text-slate-600">
-                            {question.feedback}
-                          </p>
-                        )}
-
-                      </div>
-                    )
-                  )}
-
-                </div>
-
-              </div>
-            )}
-
-            {/* =============================================
-                STRENGTHS / WEAKNESSES
-            ============================================= */}
-
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-
-              {/* Strengths */}
-
-              <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-
-                <p className="text-xs font-bold uppercase tracking-wide text-green-700">
-                  Strengths
-                </p>
-
-                {assignment.report.strengths?.length > 0 ? (
-
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-green-800">
-
-                    {assignment.report.strengths.map(
-                      (item, index) => (
-                        <li key={index}>
-                          {item}
-                        </li>
-                      )
-                    )}
-
-                  </ul>
-
-                ) : (
-
-                  <p className="mt-2 text-sm text-green-800">
-                    No strengths reported.
-                  </p>
-
-                )}
-
-              </div>
-
-              {/* Weaknesses */}
-
-              <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-
-                <p className="text-xs font-bold uppercase tracking-wide text-red-700">
-                  Areas to Improve
-                </p>
-
-                {assignment.report.weaknesses?.length > 0 ? (
-
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-800">
-
-                    {assignment.report.weaknesses.map(
-                      (item, index) => (
-                        <li key={index}>
-                          {item}
-                        </li>
-                      )
-                    )}
-
-                  </ul>
-
-                ) : (
-
-                  <p className="mt-2 text-sm text-red-800">
-                    No specific weaknesses reported.
-                  </p>
-
-                )}
-
-              </div>
-
-            </div>
-
-            {/* Teacher verification warning */}
-
-            <p className="mt-4 text-xs leading-5 text-amber-700">
-              ⚠ AI-generated marks are suggested marks
-              and should be verified by the teacher before
-              they are treated as final marks.
-            </p>
-
-          </div>
-
-        ) : assignment.status === "scanned" &&
-          pages.length > 0 ? (
-
-          /* =================================================
-             SCAN ONLY RESULT
-          ================================================= */
-
-          <div>
-
-            <div className="flex items-center gap-2">
-
-              <CheckCircle2
-                className="text-green-600"
-                size={18}
-              />
-
-              <p className="text-sm font-semibold text-slate-800">
-                Handwriting scan completed
-              </p>
-
-              <span className="ml-auto text-xs font-semibold text-slate-500">
-                {pages.length} page(s)
-              </span>
-
-            </div>
-
-            <div className="mt-4 space-y-3">
-
-              {pages.map((page, index) => (
-
-                <div
-                  key={page.pageNumber ?? index}
-                  className="rounded-lg border border-slate-200 bg-white p-3"
-                >
-
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-
-                    <span>
-                      Page {page.pageNumber ?? index + 1}
-                    </span>
-
-                    <span>
-                      Confidence:{" "}
-                      {formatConfidence(
-                        page.confidence
-                      )}
-                    </span>
-
-                  </div>
-
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                    {page.text ||
-                      "No readable text returned."}
-                  </p>
-
-                </div>
-
-              ))}
-
-            </div>
-
-          </div>
-
+          <EvaluationReport assignment={assignment} onDownload={onDownload} downloadingId={downloadingId} />
+        ) : assignment.status === "scanned" && pages.length > 0 ? (
+          <ScanResult pages={pages} />
         ) : assignment.status === "failed" ? (
-
-          /* =================================================
-             FAILED
-          ================================================= */
-
-          <div className="flex gap-3">
-
-            <AlertCircle
-              className="mt-0.5 shrink-0 text-red-600"
-              size={19}
-            />
-
-            <div>
-
-              <p className="text-sm font-semibold text-slate-800">
-                AI evaluation failed
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Check the Node.js backend and Python
-                AI-service terminals for the exact error.
-              </p>
-
-            </div>
-
-          </div>
-
+          <FailedState />
         ) : (
-
-          /* =================================================
-             DEFAULT
-          ================================================= */
-
-          <div className="flex gap-3">
-
-            <Clock3
-              className="mt-0.5 shrink-0 text-amber-600"
-              size={19}
-            />
-
-            <div>
-
-              <p className="text-sm font-semibold text-slate-800">
-                Uploaded; evaluation not completed
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Your assignment has been uploaded and is
-                waiting for processing.
-              </p>
-
-            </div>
-
-          </div>
-
+          <PendingState />
         )}
-
       </div>
     </article>
   );
 }
 
-/* =========================================================
-   REPORT VALUE
-========================================================= */
-
-function ReportValue({ label, value }) {
+function EvaluationReport({ assignment, onDownload, downloadingId }) {
+  const report = assignment.report || {};
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-green-700">Evaluation Report</p>
+          <p className="mt-1 text-sm text-slate-600">AI-assisted result. Teacher verification remains important.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => onDownload(`/assignments/${assignment.id}/report?format=csv`, `${safeFileName(assignment.title)}_report.csv`)}
+            className="btn-secondary gap-2 px-3 py-2 text-xs"
+            disabled={downloadingId?.includes(`/assignments/${assignment.id}/report`)}
+          >
+            <FileBarChart2 size={15} /> CSV Report
+          </button>
+          <button
+            onClick={() => onDownload(`/assignments/${assignment.id}/report?format=json`, `${safeFileName(assignment.title)}_report.json`)}
+            className="btn-secondary gap-2 px-3 py-2 text-xs"
+            disabled={downloadingId?.includes(`/assignments/${assignment.id}/report`)}
+          >
+            <Download size={15} /> JSON Report
+          </button>
+        </div>
+      </div>
 
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <ReportValue label="Marks" value={`${report.obtainedMarks}/${report.totalMarks}`} />
+        <ReportValue label="Percentage" value={`${report.percentage ?? 0}%`} />
+        <ReportValue label="Answer Quality" value={report.answerQuality || "—"} />
+      </div>
 
-      <p className="mt-2 text-xl font-bold text-slate-900">
-        {value}
-      </p>
+      {report.summary && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
+          {report.summary}
+        </div>
+      )}
 
+      {report.questionResults?.length > 0 && (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="min-w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-3 py-3">Question</th>
+                <th className="px-3 py-3">Marks</th>
+                <th className="px-3 py-3">Correctness</th>
+                <th className="px-3 py-3">Completeness</th>
+                <th className="px-3 py-3">Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.questionResults.map((question, index) => (
+                <tr key={`${question.questionNumber}-${index}`} className="border-t border-slate-100">
+                  <td className="px-3 py-3 font-semibold">Q{question.questionNumber || index + 1}</td>
+                  <td className="px-3 py-3">{question.obtainedMarks}/{question.maximumMarks}</td>
+                  <td className="px-3 py-3">{Math.round(question.correctness || 0)}%</td>
+                  <td className="px-3 py-3">{Math.round(question.completeness || 0)}%</td>
+                  <td className="px-3 py-3">{question.verdict || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-/* =========================================================
-   METRIC
-========================================================= */
-
-function Metric({ label, value }) {
-  const numericValue = Number(value);
-
-  const safeValue = Number.isNaN(numericValue)
-    ? 0
-    : Math.max(0, Math.min(100, numericValue));
-
+function ScanResult({ pages }) {
   return (
-    <div className="rounded-md bg-slate-50 p-2">
-
-      <p className="text-[11px] text-slate-500">
-        {label}
-      </p>
-
-      <p className="mt-1 text-sm font-bold text-slate-800">
-        {Math.round(safeValue)}%
-      </p>
-
+    <div>
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="text-green-600" size={18} />
+        <p className="text-sm font-semibold text-slate-800">Handwriting scan completed</p>
+        <span className="ml-auto text-xs font-semibold text-slate-500">{pages.length} page(s)</span>
+      </div>
+      <div className="mt-4 space-y-3">
+        {pages.map((page, index) => (
+          <div key={`${page.pageNumber}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
+              <span>Page {page.pageNumber || index + 1}</span>
+              <span>Confidence: {formatConfidence(page.confidence)}</span>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{page.text || "No readable text returned."}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-/* =========================================================
-   ALERT
-========================================================= */
+function ProcessState() {
+  return (
+    <div className="flex gap-3">
+      <ScanText className="mt-0.5 shrink-0 animate-pulse text-blue-600" size={19} />
+      <div>
+        <p className="text-sm font-semibold text-slate-800">AI processing in progress</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">PDF pages are being converted, preprocessed and sent to the handwriting-recognition service.</p>
+      </div>
+    </div>
+  );
+}
+
+function FailedState() {
+  return (
+    <div className="flex gap-3">
+      <AlertCircle className="mt-0.5 shrink-0 text-red-600" size={19} />
+      <div>
+        <p className="text-sm font-semibold text-slate-800">AI processing failed</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">The uploaded PDF remains stored. Check the backend and AI-service logs for the exact cause.</p>
+      </div>
+    </div>
+  );
+}
+
+function PendingState() {
+  return (
+    <div className="flex gap-3">
+      <Clock3 className="mt-0.5 shrink-0 text-amber-600" size={19} />
+      <div>
+        <p className="text-sm font-semibold text-slate-800">Waiting for processing</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">The PDF is stored and will show OCR/evaluation results after processing completes.</p>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-semibold text-slate-700">{label}</label>
+      {children}
+    </div>
+  );
+}
 
 function Alert({ message, type = "error" }) {
-  const isSuccess = type === "success";
-
   return (
-    <div
-      className={`rounded-lg border px-4 py-3 text-sm ${isSuccess
-          ? "border-green-200 bg-green-50 text-green-700"
-          : "border-red-200 bg-red-50 text-red-700"
-        }`}
-    >
+    <div className={`rounded-xl border px-4 py-3 text-sm ${type === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
       {message}
     </div>
   );
+}
+
+function ReportValue({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-xl font-bold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="mt-6 rounded-2xl border border-dashed border-slate-300 p-12 text-center">
+      <FileText className="mx-auto text-slate-400" size={36} />
+      <p className="mt-3 font-semibold text-slate-700">No assignments yet</p>
+      <p className="mt-1 text-sm text-slate-500">Upload your first answered assignment using the form.</p>
+    </div>
+  );
+}
+
+function LoadingState({ text }) {
+  return <div className="py-14 text-center text-sm text-slate-500">{text}</div>;
+}
+
+function formatBytes(bytes) {
+  if (!bytes || Number(bytes) <= 0) return "0 KB";
+  const value = Number(bytes);
+  const units = ["Bytes", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return `${(value / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+}
+
+function formatConfidence(value) {
+  if (typeof value !== "number") return "—";
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+}
+
+function formatDate(date) {
+  if (!date) return "N/A";
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "N/A";
+  return parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function safeFileName(value) {
+  return String(value || "assignment").replace(/[^a-zA-Z0-9._-]/g, "_");
 }

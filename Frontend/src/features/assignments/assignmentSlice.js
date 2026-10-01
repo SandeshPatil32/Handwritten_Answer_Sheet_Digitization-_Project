@@ -59,22 +59,40 @@ export const fetchTeacherAssignments = createAsyncThunk(
   }
 );
 
+export const fetchSimilarityResults = createAsyncThunk(
+  "assignments/fetchSimilarityResults",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await api.get("/assignments/teacher/similarity");
+      return data.results || [];
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || "Could not calculate student similarity."
+      );
+    }
+  }
+);
+
 const assignmentSlice = createSlice({
   name: "assignments",
   initialState: {
     items: [],
+    similarityResults: [],
     loading: false,
     uploadLoading: false,
     scanLoading: false,
+    similarityLoading: false,
     error: null,
     uploadError: null,
-    scanError: null
+    scanError: null,
+    similarityError: null
   },
   reducers: {
     clearAssignmentError: (state) => {
       state.error = null;
       state.uploadError = null;
       state.scanError = null;
+      state.similarityError = null;
     }
   },
   extraReducers: (builder) => {
@@ -100,9 +118,7 @@ const assignmentSlice = createSlice({
         const index = state.items.findIndex(
           (item) => item.id === action.payload.id
         );
-        if (index !== -1) {
-          state.items[index] = action.payload;
-        }
+        if (index !== -1) state.items[index] = action.payload;
       })
       .addCase(scanAssignment.rejected, (state, action) => {
         state.scanLoading = false;
@@ -131,6 +147,18 @@ const assignmentSlice = createSlice({
       .addCase(fetchTeacherAssignments.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+      })
+      .addCase(fetchSimilarityResults.pending, (state) => {
+        state.similarityLoading = true;
+        state.similarityError = null;
+      })
+      .addCase(fetchSimilarityResults.fulfilled, (state, action) => {
+        state.similarityLoading = false;
+        state.similarityResults = action.payload;
+      })
+      .addCase(fetchSimilarityResults.rejected, (state, action) => {
+        state.similarityLoading = false;
+        state.similarityError = action.payload;
       });
   }
 });
