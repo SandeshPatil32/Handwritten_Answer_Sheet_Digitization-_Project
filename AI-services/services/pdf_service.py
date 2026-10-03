@@ -17,15 +17,12 @@ def pdf_to_images(pdf_data):
     if pdf_data is None:
         raise ValueError("PDF data is empty.")
 
-    # Case 1: bytes / bytearray
     if isinstance(pdf_data, (bytes, bytearray)):
         pdf_bytes = bytes(pdf_data)
 
-    # Case 2: file-like object
     elif hasattr(pdf_data, "read"):
         pdf_bytes = pdf_data.read()
 
-    # Case 3: file path
     elif isinstance(pdf_data, str):
         with open(pdf_data, "rb") as file:
             pdf_bytes = file.read()
@@ -44,7 +41,6 @@ def pdf_to_images(pdf_data):
         for page_number in range(len(document)):
             page = document.load_page(page_number)
 
-            # 2x resolution for better handwriting recognition
             matrix = fitz.Matrix(2.0, 2.0)
 
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
