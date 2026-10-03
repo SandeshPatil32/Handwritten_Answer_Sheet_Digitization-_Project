@@ -11,7 +11,6 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# Flask-side safety limit. Node/Multer also limits uploads to 10 MB.
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 app.register_blueprint(scan_bp, url_prefix="/api")

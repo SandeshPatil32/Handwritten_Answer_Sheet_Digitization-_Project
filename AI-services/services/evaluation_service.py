@@ -19,33 +19,16 @@ def evaluate_answer_sheet(file, questions):
 
         raise ValueError("GEMINI_API_KEY is missing.") 
 
-    # =================================
-    # Step 1
-    # PDF/Image → images
-    # =================================
-
     images = file_to_images(file)
 
     all_answers = []
-
-    # =================================
-    # Step 2
-    # Process every page
-    # =================================
 
     for page_number, image in enumerate(images, start=1):
 
         variants = prepare_image(image)
 
-        # =================================
-        # Step 3
-        # Handwriting extraction
-        # =================================
-
         extraction = extract_answers_from_page(variants["processed"], questions)
 
-        # If nothing was extracted,
-        # retry using original image.
 
         if not extraction.answers or all(
             not answer.student_answer.strip() for answer in extraction.answers
@@ -53,9 +36,6 @@ def evaluate_answer_sheet(file, questions):
 
             extraction = extract_answers_from_page(variants["original"], questions)
 
-        # =================================
-        # Store extracted answers
-        # =================================
 
         for answer in extraction.answers:
 
@@ -67,11 +47,6 @@ def evaluate_answer_sheet(file, questions):
                     "confidence": answer.confidence,
                 }
             )
-
-    # =================================
-    # Step 4
-    # Merge answers from pages
-    # =================================
 
     merged = {}
 
@@ -91,8 +66,6 @@ def evaluate_answer_sheet(file, questions):
                 merged[q_no]["confidence"], answer["confidence"]
             )
 
-    # Convert to objects expected
-    # by evaluation service.
 
     extracted_objects = []
 
@@ -109,17 +82,10 @@ def evaluate_answer_sheet(file, questions):
 
         extracted_objects.append(obj)
 
-    # =================================
-    # Step 5
-    # Gemini evaluation
-    # =================================
 
     evaluation = evaluate_questions(extracted_objects, questions)
 
-    # =================================
-    # Step 6
-    # Marks calculation
-    # =================================
+
 
     total_marks = sum(float(q.get("maximumMarks", 0)) for q in questions)
 
@@ -131,11 +97,6 @@ def evaluate_answer_sheet(file, questions):
     percentage = obtained_marks / total_marks * 100 if total_marks > 0 else 0
 
     percentage = round(percentage, 2)
-
-    # =================================
-    # Step 7
-    # Quality
-    # =================================
 
     if percentage >= 85:
 
@@ -153,19 +114,9 @@ def evaluate_answer_sheet(file, questions):
 
         quality = "Needs Improvement"
 
-    # =================================
-    # Step 8
-    # Semantic similarity
-    # =================================
-
     similarity = calculate_reference_similarity(
         extracted_objects, questions, embed_texts
     )
-
-    # =================================
-    # Step 9
-    # Final report
-    # =================================
 
     return {
         "status": "completed",
