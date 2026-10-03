@@ -28,9 +28,12 @@ const questionResultSchema = new mongoose.Schema(
     correctness: { type: Number, min: 0, max: 100, default: 0 },
     relevance: { type: Number, min: 0, max: 100, default: 0 },
     completeness: { type: Number, min: 0, max: 100, default: 0 },
+    explanationQuality: { type: Number, min: 0, max: 100, default: 0 },
+    qualityScore: { type: Number, min: 0, max: 100, default: 0 },
     answerQuality: { type: String, default: "" },
     verdict: { type: String, default: "" },
-    feedback: { type: String, default: "" }
+    feedback: { type: String, default: "" },
+    missedConcepts: { type: [String], default: [] }
   },
   { _id: false }
 );
@@ -49,17 +52,19 @@ const aiContentSchema = new mongoose.Schema(
 const reportSchema = new mongoose.Schema(
   {
     obtainedMarks: { type: Number, default: null },
-    totalMarks: { type: Number, default: null },
+    totalMarks: { type: Number, default: 25 },
     percentage: { type: Number, default: null },
     answerQuality: { type: String, default: null },
     summary: { type: String, default: null },
     strengths: { type: [String], default: [] },
     weaknesses: { type: [String], default: [] },
+    missedConcepts: { type: [String], default: [] },
     overallCorrectness: { type: Number, min: 0, max: 100, default: 0 },
     overallRelevance: { type: Number, min: 0, max: 100, default: 0 },
     overallCompleteness: { type: Number, min: 0, max: 100, default: 0 },
     questionResults: { type: [questionResultSchema], default: [] },
     aiContent: { type: aiContentSchema, default: null },
+    gradingBasis: { type: String, default: "" },
     evaluatedAt: { type: Date, default: null }
   },
   { _id: false }

@@ -25,6 +25,8 @@ def health():
             "service": "AnswerCheck AI Service",
             "geminiConfigured": bool(os.getenv("GEMINI_API_KEY")),
             "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+            "htrEngine": os.getenv("HTR_ENGINE", "hybrid"),
+            "trocrModel": os.getenv("TROCR_MODEL", "microsoft/trocr-base-handwritten"),
         }
     )
 

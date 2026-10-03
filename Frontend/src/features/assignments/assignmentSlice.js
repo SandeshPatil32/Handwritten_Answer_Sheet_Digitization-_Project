@@ -45,6 +45,20 @@ export const fetchMyAssignments = createAsyncThunk(
   }
 );
 
+export const fetchStudentAnalytics = createAsyncThunk(
+  "assignments/fetchStudentAnalytics",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await api.get("/assignments/mine/analytics");
+      return data;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || "Could not load performance analytics."
+      );
+    }
+  }
+);
+
 export const fetchTeacherAssignments = createAsyncThunk(
   "assignments/fetchTeacherAssignments",
   async (_, { rejectWithValue }) => {
@@ -85,7 +99,10 @@ const assignmentSlice = createSlice({
     error: null,
     uploadError: null,
     scanError: null,
-    similarityError: null
+    similarityError: null,
+    analytics: null,
+    analyticsLoading: false,
+    analyticsError: null
   },
   reducers: {
     clearAssignmentError: (state) => {
@@ -93,6 +110,7 @@ const assignmentSlice = createSlice({
       state.uploadError = null;
       state.scanError = null;
       state.similarityError = null;
+      state.analyticsError = null;
     }
   },
   extraReducers: (builder) => {
@@ -159,6 +177,18 @@ const assignmentSlice = createSlice({
       .addCase(fetchSimilarityResults.rejected, (state, action) => {
         state.similarityLoading = false;
         state.similarityError = action.payload;
+      })
+      .addCase(fetchStudentAnalytics.pending, (state) => {
+        state.analyticsLoading = true;
+        state.analyticsError = null;
+      })
+      .addCase(fetchStudentAnalytics.fulfilled, (state, action) => {
+        state.analyticsLoading = false;
+        state.analytics = action.payload;
+      })
+      .addCase(fetchStudentAnalytics.rejected, (state, action) => {
+        state.analyticsLoading = false;
+        state.analyticsError = action.payload;
       });
   }
 });

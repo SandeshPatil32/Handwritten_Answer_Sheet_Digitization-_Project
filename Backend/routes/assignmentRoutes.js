@@ -6,6 +6,7 @@ import {
   downloadSimilarityReport,
   getAllAssignments,
   getMyAssignments,
+  getStudentAnalytics,
   getSimilarityResults,
   scanAssignment
 } from "../controllers/assignmentController.js";
@@ -24,6 +25,7 @@ router.post(
 );
 
 router.get("/mine", authorize("student"), getMyAssignments);
+router.get("/mine/analytics", authorize("student"), getStudentAnalytics);
 router.get("/teacher", authorize("teacher"), getAllAssignments);
 router.get("/teacher/similarity", authorize("teacher"), getSimilarityResults);
 router.get("/teacher/similarity/report", authorize("teacher"), downloadSimilarityReport);

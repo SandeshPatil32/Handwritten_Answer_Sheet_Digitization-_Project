@@ -16,7 +16,8 @@ import {
   clearAssignmentError,
   fetchMyAssignments,
   scanAssignment,
-  uploadAssignment
+  uploadAssignment,
+  fetchStudentAnalytics
 } from "../../features/assignments/assignmentSlice";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -31,7 +32,10 @@ export default function StudentDashboard() {
     scanLoading,
     error,
     uploadError,
-    scanError
+    scanError,
+    analytics,
+    analyticsLoading,
+    analyticsError
   } = useSelector((state) => state.assignments);
 
   const [form, setForm] = useState({
@@ -47,6 +51,7 @@ export default function StudentDashboard() {
 
   useEffect(() => {
     dispatch(fetchMyAssignments());
+    dispatch(fetchStudentAnalytics());
     dispatch(clearAssignmentError());
   }, [dispatch]);
 
@@ -273,9 +278,175 @@ export default function StudentDashboard() {
             )}
           </div>
         </section>
+
+        <StudentPerformanceAnalytics
+          analytics={analytics}
+          loading={analyticsLoading}
+          error={analyticsError}
+        />
       </div>
     </main>
   );
+}
+
+
+function StudentPerformanceAnalytics({ analytics, loading, error }) {
+  if (loading) {
+    return (
+      <section className="dashboard-card mt-7">
+        <h2 className="section-title text-xl">Student Performance Analytics</h2>
+        <p className="mt-3 text-sm text-slate-500">Calculating your performance...</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="dashboard-card mt-7">
+        <h2 className="section-title text-xl">Student Performance Analytics</h2>
+        <p className="mt-3 text-sm text-red-600">{error}</p>
+      </section>
+    );
+  }
+
+  const data = analytics || {};
+  const subjects = data.subjectPerformance || [];
+  const questions = data.questionPerformance || [];
+  const concepts = data.missedConcepts || [];
+  const trend = data.improvementOverTime || [];
+  const maxSubject = Math.max(...subjects.map((item) => item.averagePercentage || 0), 1);
+  const maxConcept = Math.max(...concepts.map((item) => item.count || 0), 1);
+
+  return (
+    <section className="dashboard-card mt-7">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="section-title text-xl">Student Performance Analytics</h2>
+          <p className="section-subtitle">Track marks, subject performance, missed concepts, question performance and improvement over time.</p>
+        </div>
+        <span className="badge-blue">{data.totalEvaluated || 0} evaluated</span>
+      </div>
+
+      {!data.totalEvaluated ? (
+        <div className="mt-6 rounded-2xl border border-dashed border-slate-300 p-8 text-center">
+          <p className="font-semibold text-slate-700">Analytics will appear after evaluation.</p>
+          <p className="mt-1 text-sm text-slate-500">Upload and successfully evaluate an answer sheet to start building your performance history.</p>
+        </div>
+      ) : (
+        <>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <AnalyticsStat label="Average Marks" value={`${data.averageMarks ?? 0}/25`} />
+            <AnalyticsStat label="Average Percentage" value={`${data.averagePercentage ?? 0}%`} />
+            <AnalyticsStat label="Evaluated Assignments" value={data.totalEvaluated || 0} />
+            <AnalyticsStat label="Missed Concepts" value={concepts.length} />
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <AnalyticsPanel title="Subject-wise Performance">
+              {subjects.length ? subjects.map((item) => (
+                <div key={item.subject} className="mb-4 last:mb-0">
+                  <div className="flex justify-between gap-3 text-sm">
+                    <span className="font-medium text-slate-700">{item.subject}</span>
+                    <span className="font-semibold text-slate-900">{item.averagePercentage}%</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, (item.averagePercentage / maxSubject) * 100)}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">{item.attempts} attempt(s) · {item.averageMarks}/25 average</p>
+                </div>
+              )) : <AnalyticsEmpty text="No subject data yet." />}
+            </AnalyticsPanel>
+
+            <AnalyticsPanel title="Frequently Missed Concepts">
+              {concepts.length ? concepts.map((item) => (
+                <div key={item.concept} className="mb-4 last:mb-0">
+                  <div className="flex justify-between gap-3 text-sm">
+                    <span className="font-medium text-slate-700">{item.concept}</span>
+                    <span className="font-semibold text-slate-900">{item.count}</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, (item.count / maxConcept) * 100)}%` }} />
+                  </div>
+                </div>
+              )) : <AnalyticsEmpty text="No repeated missed concepts detected yet." />}
+            </AnalyticsPanel>
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            <AnalyticsPanel title="Question-wise Performance">
+              {questions.length ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-xs">
+                    <thead className="text-slate-500">
+                      <tr>
+                        <th className="pb-2 pr-4">Question</th>
+                        <th className="pb-2 pr-4">Avg Marks</th>
+                        <th className="pb-2 pr-4">Correctness</th>
+                        <th className="pb-2">Completeness</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {questions.map((item) => (
+                        <tr key={item.questionNumber} className="border-t border-slate-100">
+                          <td className="py-2 pr-4 font-semibold">Q{item.questionNumber}</td>
+                          <td className="py-2 pr-4">{item.averageMarks}</td>
+                          <td className="py-2 pr-4">{item.averageCorrectness}%</td>
+                          <td className="py-2">{item.averageCompleteness}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <AnalyticsEmpty text="Question-level analytics are not available yet." />}
+            </AnalyticsPanel>
+
+            <AnalyticsPanel title="Improvement Over Time">
+              {trend.length ? (
+                <div className="space-y-3">
+                  {trend.map((item, index) => (
+                    <div key={`${item.date}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-800">{item.title}</p>
+                          <p className="text-xs text-slate-500">{item.subject} · {formatDate(item.date)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-900">{item.percentage}%</p>
+                          <p className="text-[11px] text-slate-400">{item.marks}/25</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <AnalyticsEmpty text="Complete more evaluated assignments to see improvement." />}
+            </AnalyticsPanel>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function AnalyticsStat({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function AnalyticsPanel({ title, children }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <h3 className="font-bold text-slate-900">{title}</h3>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+function AnalyticsEmpty({ text }) {
+  return <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{text}</p>;
 }
 
 function AssignmentCard({ assignment, onOpen, onDownload, downloadingId, isScanning }) {

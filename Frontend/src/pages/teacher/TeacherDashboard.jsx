@@ -49,60 +49,24 @@ export default function TeacherDashboard() {
   const filteredAssignments = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) {
-      return statusFilter === "all"
-        ? assignments
-        : assignments.filter(
-          (assignment) =>
-            assignment.status === statusFilter
-        );
-    }
-
     return assignments.filter((assignment) => {
-
-      const studentName = String(
-        assignment.studentName || ""
-      ).toLowerCase();
-
-      const studentId = String(
-        assignment.studentId || ""
-      ).toLowerCase();
-
-      const title = String(
-        assignment.title || ""
-      ).toLowerCase();
-
-      const subject = String(
-        assignment.subject || ""
-      ).toLowerCase();
-
-      const email = String(
-        assignment.studentEmail || ""
-      ).toLowerCase();
-
-      const emailLocalPart = email.split("@")[0];
-
-      const searchableFields = [
-        studentName,
-        studentId,
-        title,
-        subject,
-        emailLocalPart,
-      ];
-
-      // Search complete email only when user types @
-      if (query.includes("@")) {
-        searchableFields.push(email);
+      if (!query) {
+        return statusFilter === "all" || assignment.status === statusFilter;
       }
 
-      const matchesSearch = searchableFields.some(
-        (value) => value.includes(query)
-      );
+      const studentName = String(assignment.studentName || "").toLowerCase();
+      const studentId = String(assignment.studentId || "").toLowerCase();
+      const title = String(assignment.title || "").toLowerCase();
+      const subject = String(assignment.subject || "").toLowerCase();
+      const email = String(assignment.studentEmail || "").toLowerCase();
+      const emailLocalPart = email.split("@")[0];
 
-      const matchesStatus =
-        statusFilter === "all" ||
-        assignment.status === statusFilter;
+      const searchFields = [studentName, studentId, title, subject, emailLocalPart];
+      if (query.includes("@")) searchFields.push(email);
 
+      const matchesSearch = searchFields.some((value) => value.includes(query));
+
+      const matchesStatus = statusFilter === "all" || assignment.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [assignments, search, statusFilter]);

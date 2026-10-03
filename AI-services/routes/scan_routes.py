@@ -1,79 +1,104 @@
-# ai-service/routes/scan_routes.py
+import os
 
 from flask import Blueprint, jsonify, request
 
-from services.gemini_service import scan_page, evaluate_assignment
 from services.pdf_service import pdf_to_images
 from services.preprocessing_service import preprocess_image
+from services.gemini_service import scan_page, evaluate_assignment
+from services.htr_service import get_htr_engine
 
 scan_bp = Blueprint("scan", __name__)
 
 
+@scan_bp.get("/htr-status")
+def htr_status():
+    return jsonify({
+        "status": "ok",
+        "engine": get_htr_engine(),
+        "trocrEnabled": get_htr_engine() in {"trocr", "hybrid"},
+    })
+
+
 @scan_bp.post("/scan")
-def scan_pdf():
+def scan():
+    uploaded_file = request.files.get("answer_pdf")
 
-    if "answer_pdf" not in request.files:
-        return jsonify({"message": "answer_pdf is required."}), 400
+    if not uploaded_file:
+        return jsonify({
+            "status": "failed",
+            "error": "answer_pdf is required."
+        }), 400
 
-    file = request.files["answer_pdf"]
+    filename = uploaded_file.filename or ""
 
-    if not file.filename:
-        return jsonify({"message": "No PDF was selected."}), 400
-
-    if not file.filename.lower().endswith(".pdf"):
-        return jsonify({"message": "Only PDF files are supported."}), 400
+    if not filename.lower().endswith(".pdf"):
+        return jsonify({
+            "status": "failed",
+            "error": "Only PDF files are supported."
+        }), 400
 
     try:
+        pdf_bytes = uploaded_file.read()
 
-        images = pdf_to_images(file)
+        if not pdf_bytes:
+            return jsonify({
+                "status": "failed",
+                "error": "The uploaded PDF is empty."
+            }), 400
+
+        images = pdf_to_images(pdf_bytes)
+
+        if not images:
+            return jsonify({
+                "status": "failed",
+                "error": "No readable pages were found in the PDF."
+            }), 400
+
+        # Gemini is deliberately the default transcription engine.
+        # TrOCR is NOT loaded/downloaded when HTR_ENGINE=gemini.
+        htr_engine = request.args.get(
+            "htr",
+            os.getenv("HTR_ENGINE", "gemini")
+        ).strip().lower()
+
+        if htr_engine not in {"gemini", "trocr", "hybrid"}:
+            htr_engine = "gemini"
 
         pages = []
 
-        for page_number, image in enumerate(images, start=1):
+        print(
+            f"[AI] Starting scan: pages={len(images)}, "
+            f"HTR_ENGINE={htr_engine}"
+        )
 
-            print(f"[AI] Processing page " f"{page_number}/{len(images)}")
+        for index, image in enumerate(images, start=1):
+            print(f"[AI] Processing page {index}/{len(images)}")
 
             processed_image = preprocess_image(image)
 
-            result = scan_page(processed_image, page_number)
+            # Current production/default path:
+            # Gemini performs the handwriting transcription.
+            page_result = scan_page(
+                processed_image,
+                page_number=index
+            )
 
-            pages.extend(page.model_dump() for page in result.pages)
-
-        if not pages:
-            raise RuntimeError("No handwritten text was extracted from the PDF.")
-
-        # --------------------------------------------------
-        # AI MARK EVALUATION
-        # --------------------------------------------------
-
-        print("[AI] Handwriting transcription completed.")
-
-        print("[AI] Starting assignment evaluation " "out of 25 marks...")
+            pages.append(page_result)
 
         evaluation = evaluate_assignment(pages)
 
-        print(f"[AI] Suggested Marks: " f"{evaluation.obtained_marks}/25")
-
-        return jsonify(
-            {
-                "status": "completed",
-                "pagesProcessed": len(images),
-                "pages": pages,
-                "evaluation": evaluation.model_dump(),
-            }
-        )
+        return jsonify({
+            "status": "completed",
+            "pagesProcessed": len(pages),
+            "htrEngine": "gemini",
+            "pages": pages,
+            "evaluation": evaluation,
+        })
 
     except Exception as error:
-
         print(f"[AI] Scan/evaluation failed: {error}")
 
-        return (
-            jsonify(
-                {
-                    "status": "failed",
-                    "message": "AI scanning/evaluation failed.",
-                    "error": str(error),
-                }
-            ),
-            500,
-        )
+        return jsonify({
+            "status": "failed",
+            "error": str(error),
+        }), 500
